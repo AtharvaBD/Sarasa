@@ -1,7 +1,7 @@
 {
   "paths": {
-    "credentials": "credentials.json",
-    "token": "data/token.json",
+    "credentials": "systemdata/credentials.json",
+    "token": "systemdata/token.json",
     "state": "data/poller_state.json",
     "database": "data/jobs.db",
     "classifier_log": "data/classifier_log.jsonl",
