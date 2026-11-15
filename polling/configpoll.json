@@ -10,11 +10,11 @@
     "no_think_suffix": "\n/no_think"
   },
   "paths": {
-    "database": "data/jobs.db",
-    "classifier_log": "data/classifier_log.jsonl",
-    "credentials": "credentials.json",
-    "token": "token.json",
-    "state": "data/state.json",
+    "database": "systemdata/jobs.db",
+    "classifier_log": "systemdata/classifier_log.jsonl",
+    "credentials": "systemdata/credentials.json",
+    "token": "systemdata/token.json",
+    "state": "systemdata/state.json",
     "browser_profile": ".browser_profile"
   },
   "gmail": {

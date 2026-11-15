@@ -18,15 +18,14 @@ from email.utils import parseaddr
 
 from bs4 import BeautifulSoup
 
-import configpoll
-import emailclassifer as ec, extractor, jobdb
+from polling import emailclassifer as ec, extractor, jobdb, configpoll
 
 SCOPES = configpoll.cfg["gmail"]["scopes"]
 INBOX_QUERY = configpoll.cfg["gmail"]["inbox_query"]
 SKIP_LABELS = set(configpoll.cfg["gmail"]["skip_labels"])
 MAX_BODY_CHARS = configpoll.cfg["gmail"]["max_body_chars"]
 
-CREDS_FILE = configpoll.path("credentials")
+CREDS_FILE = configpoll.cfg["paths"]["credentials"]
 TOKEN_FILE = configpoll.path("token")
 STATE_FILE = configpoll.path("state")
 

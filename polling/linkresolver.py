@@ -12,8 +12,7 @@ from urllib.parse import urlparse
 import httpx
 from playwright.sync_api import sync_playwright
 
-import configpoll
-import emailclassifer as ec
+from polling import configpoll, emailclassifer as ec
 
 _cfg = configpoll.cfg["resolver"]
 PROFILE_DIR = configpoll.path("browser_profile")

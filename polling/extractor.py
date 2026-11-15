@@ -2,10 +2,7 @@
 import json
 import re
 
-import configpoll
-import emailclassifer as ec
-import jobdb
-import linkresolver
+from polling import configpoll, emailclassifer as ec, jobdb, linkresolver
 
 BODY_CHARS = configpoll.cfg["extractor"]["body_chars"]
 MAX_LINKS = configpoll.cfg["extractor"]["max_links"]
