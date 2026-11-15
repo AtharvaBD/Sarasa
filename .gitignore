@@ -221,3 +221,4 @@ __marimo__/
 
 # Sensitive data
 systemdata/credentials.json
+polling/systemdata/
