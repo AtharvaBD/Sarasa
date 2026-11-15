@@ -1,0 +1,128 @@
+{
+  "model": {
+    "backend": "ollama",
+    "model": "qwen3:4b",
+    "base_url": "http://localhost:11434",
+    "timeout_seconds": 120,
+    "temperature": 0,
+    "think": false,
+    "no_think_match": "qwen3",
+    "no_think_suffix": "\n/no_think"
+  },
+  "paths": {
+    "database": "data/jobs.db",
+    "classifier_log": "data/classifier_log.jsonl",
+    "credentials": "credentials.json",
+    "token": "token.json",
+    "state": "data/state.json",
+    "browser_profile": ".browser_profile"
+  },
+  "gmail": {
+    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "inbox_query": "in:inbox",
+    "skip_labels": ["CATEGORY_SOCIAL", "CATEGORY_FORUMS"],
+    "skip_classification": "not_job",
+    "max_body_chars": 6000,
+    "page_size": 100,
+    "fallback_days": 3,
+    "history_label": "INBOX",
+    "history_types": ["messageAdded"],
+    "url_regex": "https?://[^\\s<>\"')\\]]+",
+    "link_text_chars": 120,
+    "trailing_punct": ".,;"
+  },
+  "poller": {
+    "interval_seconds": 120,
+    "backfill_days": 14
+  },
+  "classifier": {
+    "labels": ["job_posting", "application_status", "not_job"],
+    "min_confidence": 0.6,
+    "input_body_chars": 1500,
+    "attempts": 2,
+    "log_max_urls": 20
+  },
+  "extractor": {
+    "body_chars": 3000,
+    "max_links": 15,
+    "attempts": 2,
+    "link_url_chars": 150,
+    "link_text_chars": 60,
+    "resolve_links": true
+  },
+  "resolver": {
+    "headless": true,
+    "login_url": "https://app.joinhandshake.com/login",
+    "timeout_ms": 20000,
+    "popup_timeout_ms": 6000,
+    "wait_until": "domcontentloaded",
+    "platform_hosts": ["joinhandshake.com", "linkedin.com", "indeed.com"],
+    "junk_hosts": ["facebook.com", "twitter.com", "x.com", "instagram.com", "youtube.com", "google.com", "apple.com", "play.google.com", "w3.org"],
+    "apply_regex": "apply",
+    "candidate_text_chars": 80,
+    "llm_link_chars": 150,
+    "llm_body_chars": 1500,
+    "fast_redirect": true,
+    "fast_timeout_seconds": 10,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "tracking_hosts": ["sendgrid.net", "list-manage.com", "mandrillapp.com", "hubspotlinks.com", "mailchi.mp"]
+  },
+  "db": {
+    "journal_mode": "WAL",
+    "tracking_params": ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid", "mc_cid", "mc_eid", "trk", "src"]
+  },
+  "prompts": {
+    "classifier": [
+      "You classify emails for a college student who is searching for jobs, internships, co-ops, and research or teaching positions. Choose exactly ONE label for each email.",
+      "",
+      "Labels:",
+      "- job_posting: an email about a specific employment opportunity the student could pursue. Includes job/internship/co-op/research-position listings, job-alert digests that list openings (Handshake, LinkedIn, Indeed, company career alerts), recruiter or professor outreach about a role, referrals, and calls for applications with a deadline.",
+      "- application_status: an email about an application the student already submitted or is in the process of. Includes confirmation of receipt, requests to schedule an interview, online assessment or coding challenge invitations, interview details, rejections, offers, and onboarding or background-check steps.",
+      "- not_job: everything else. Coursework and academic deadlines, class or campus announcements, orders and receipts, newsletters, marketing, social media, banking/billing, personal mail, and general career-center events (workshops, career fairs) that do not describe a specific opportunity to apply for.",
+      "",
+      "Rules:",
+      "- Academic deadlines (assignments, registration, financial aid) are NOT job related.",
+      "- If an email names a specific role or company and a way to apply, prefer job_posting even if it looks like a marketing digest.",
+      "- If it concerns the student's own existing application, use application_status.",
+      "- Use a confidence below 0.6 when you genuinely cannot tell.",
+      "- \"reason\" is one short sentence, written before you choose the label.",
+      "",
+      "Examples:",
+      "From: Stripe Recruiting <recruiting@stripe.com> | Subject: Software Engineer Intern, Summer 2027 | Body: We'd love for you to apply. Applications close Nov 1...",
+      "{\"reason\": \"Recruiter outreach about a specific internship with a deadline.\", \"label\": \"job_posting\", \"confidence\": 0.95}",
+      "",
+      "From: Workday <noreply@myworkday.com> | Subject: Thank you for applying to Boeing | Body: We have received your application for Analytics Intern...",
+      "{\"reason\": \"Confirmation of an application the student already submitted.\", \"label\": \"application_status\", \"confidence\": 0.97}",
+      "",
+      "From: Prof. Lee <lee@university.edu> | Subject: CS 225 exam room change | Body: The midterm will now be held in Siebel 1404...",
+      "{\"reason\": \"Course logistics, nothing to do with employment.\", \"label\": \"not_job\", \"confidence\": 0.98}",
+      "",
+      "From: Career Center <careers@university.edu> | Subject: Resume workshop this Thursday | Body: Join us for tips on formatting your resume...",
+      "{\"reason\": \"General career event, no specific opportunity to apply for.\", \"label\": \"not_job\", \"confidence\": 0.8}",
+      "",
+      "Respond with JSON only."
+    ],
+    "extractor": [
+      "You extract job listings from an email. List every distinct job, internship, co-op, or research/teaching position the email mentions.",
+      "",
+      "For each one give:",
+      "- company: the employer or lab. NOT the platform that sent the email (Handshake, LinkedIn, Indeed, Workday, Greenhouse are platforms, not employers).",
+      "- job_title: the role title as written in the email.",
+      "- link_index: the number of the link in the \"Links\" list that leads to that specific posting or application page. Use -1 if no link fits.",
+      "",
+      "If the email is about the student's own application, give the company and role of that application.",
+      "If the email names no specific role, return an empty list.",
+      "Never invent a company or title that isn't in the email.",
+      "",
+      "Example output:",
+      "{\"jobs\": [{\"company\": \"Stripe\", \"job_title\": \"Software Engineer Intern, Summer 2027\", \"link_index\": 2}]}",
+      "",
+      "Respond with JSON only."
+    ],
+    "link_picker": [
+      "You are given a job page and a numbered list of outbound links found on it.",
+      "Pick the number of the link that leads to the employer's own posting or application page for the job described.",
+      "Use -1 if none of them do. Respond with JSON only, e.g. {\"choice\": 2}"
+    ]
+  }
+}

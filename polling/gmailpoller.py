@@ -5,7 +5,7 @@ Usage (from the project root):
     python -m polling.gmailpoller --once --backfill-days 14 --dry-run  # classify + log only
     python -m polling.gmailpoller --interval 120                       # keep polling
     
-Settings live in config.json. Command-line flags override them.
+Settings live in configpoll.json. Command-line flags override them.
 """
 import argparse
 import base64
@@ -18,19 +18,26 @@ from email.utils import parseaddr
 
 from bs4 import BeautifulSoup
 
-import config
-from polling import emailclassifier, extractor, jobdb
+import configpoll
+import emailclassifer as ec, extractor, jobdb
 
-SCOPES = config.cfg["gmail"]["scopes"]
-INBOX_QUERY = config.cfg["gmail"]["inbox_query"]
-SKIP_LABELS = set(config.cfg["gmail"]["skip_labels"])
-MAX_BODY_CHARS = config.cfg["gmail"]["max_body_chars"]
+SCOPES = configpoll.cfg["gmail"]["scopes"]
+INBOX_QUERY = configpoll.cfg["gmail"]["inbox_query"]
+SKIP_LABELS = set(configpoll.cfg["gmail"]["skip_labels"])
+MAX_BODY_CHARS = configpoll.cfg["gmail"]["max_body_chars"]
 
-CREDS_FILE = config.path("credentials")
-TOKEN_FILE = config.path("token")
-STATE_FILE = config.path("state")
+CREDS_FILE = configpoll.path("credentials")
+TOKEN_FILE = configpoll.path("token")
+STATE_FILE = configpoll.path("state")
 
-URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
+URL_RE = re.compile(configpoll.cfg["gmail"]["url_regex"])
+PAGE_SIZE = configpoll.cfg["gmail"]["page_size"]
+FALLBACK_DAYS = configpoll.cfg["gmail"]["fallback_days"]
+HISTORY_LABEL = configpoll.cfg["gmail"]["history_label"]
+HISTORY_TYPES = configpoll.cfg["gmail"]["history_types"]
+LINK_TEXT_CHARS = configpoll.cfg["gmail"]["link_text_chars"]
+TRAILING_PUNCT = configpoll.cfg["gmail"]["trailing_punct"]
+SKIP_CLASSIFICATION = configpoll.cfg["gmail"]["skip_classification"]
 
 
 # ---------- auth ----------
@@ -111,7 +118,7 @@ def html_to_text_and_links(html):
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if href.startswith(("http://", "https://")):
-            links.append({"url": href, "text": a.get_text(" ", strip=True)[:120]})
+            links.append({"url": href, "text": a.get_text(" ", strip=True)[:LINK_TEXT_CHARS]})
     return soup.get_text("\n", strip=True), links
 
 
@@ -136,7 +143,7 @@ def parse_message(msg):
         plain = "\n".join(bodies["text/plain"])
         if plain.strip():
             text = plain  # prefer the sender's own plain-text part; links still come from the HTML
-        links += [{"url": u.rstrip(".,;"), "text": ""} for u in URL_RE.findall(plain)]
+        links += [{"url": u.rstrip(TRAILING_PUNCT), "text": ""} for u in URL_RE.findall(plain)]
 
     seen, uniq = set(), []
     for l in links:
@@ -181,7 +188,7 @@ def _recent_ids(service, days):
     ids, token = [], None
     while True:
         r = service.users().messages().list(
-            userId="me", q=f"{INBOX_QUERY} newer_than:{days}d", pageToken=token, maxResults=100
+            userId="me", q=f"{INBOX_QUERY} newer_than:{days}d", pageToken=token, maxResults=PAGE_SIZE
         ).execute()
         ids += [m["id"] for m in r.get("messages", [])]
         token = r.get("nextPageToken")
@@ -194,8 +201,8 @@ def _history_ids(service, start_id):
     ids, token, latest = [], None, start_id
     while True:
         r = service.users().history().list(
-            userId="me", startHistoryId=start_id, historyTypes=["messageAdded"],
-            labelId="INBOX", pageToken=token,
+            userId="me", startHistoryId=start_id, historyTypes=HISTORY_TYPES,
+            labelId=HISTORY_LABEL, pageToken=token,
         ).execute()
         for h in r.get("history", []):
             for m in h.get("messagesAdded", []):
@@ -225,7 +232,7 @@ def poll_once(service, handler, backfill_days=0, db_path=jobdb.DB_PATH):
             if e.resp.status != 404:
                 raise
             print("History id expired; falling back to a recent-mail scan.")
-            ids, new_history = _recent_ids(service, max(backfill_days, 3)), current
+            ids, new_history = _recent_ids(service, max(backfill_days, FALLBACK_DAYS)), current
 
     handled = skipped = failed = 0
     for mid in ids:
@@ -239,13 +246,13 @@ def poll_once(service, handler, backfill_days=0, db_path=jobdb.DB_PATH):
             raise
         reason = skip_reason(email)
         if reason:
-            jobdb.mark_processed(mid, "not_job", email["thread_id"], db_path)
+            jobdb.mark_processed(mid, SKIP_CLASSIFICATION, email["thread_id"], db_path)
             skipped += 1
             continue
         try:
             handler(email)
             handled += 1
-        except emailclassifier.ModelUnavailable as e:
+        except ec.ModelUnavailable as e:
             # Model server is down: stop this cycle, don't advance the cursor, retry next poll.
             failed += 1
             print(f"Model unavailable, aborting this cycle: {e}")
@@ -262,7 +269,7 @@ def poll_once(service, handler, backfill_days=0, db_path=jobdb.DB_PATH):
 
 
 def main():
-    poller = config.cfg["poller"]
+    poller = configpoll.cfg["poller"]
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="poll one time and exit")
     ap.add_argument("--interval", type=int, default=poller["interval_seconds"],
@@ -276,7 +283,7 @@ def main():
 
     jobdb.init_db()
     service = get_service()
-    handler = emailclassifier.make_handler(on_job=extractor.save_jobs, dry_run=args.dry_run)
+    handler = ec.make_handler(on_job=extractor.save_jobs, dry_run=args.dry_run)
     while True:
         try:
             poll_once(service, handler, args.backfill_days)

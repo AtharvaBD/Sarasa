@@ -13,9 +13,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
-import config
+from polling import configpoll
 
-DB_PATH = config.path("database")
+JOURNAL_MODE = configpoll.cfg["db"]["journal_mode"]
+DB_PATH = configpoll.path("database")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS processed_emails (
@@ -29,7 +30,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     company        TEXT NOT NULL,
     job_title      TEXT NOT NULL,
     link           TEXT,
-    date_published TEXT              -- YYYY-MM-DD
     date_published TEXT,             -- YYYY-MM-DD
     applied_at     TEXT              -- date you marked it applied, or NULL
 );
@@ -38,8 +38,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_unique
     ON jobs(lower(company), lower(job_title), COALESCE(link, ''));
 """
 
-_TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term",
-                    "utm_content", "gclid", "fbclid", "mc_cid", "mc_eid", "trk", "src"}
+_TRACKING_PARAMS = set(configpoll.cfg["db"]["tracking_params"])
+
 
 
 def _now():
@@ -50,7 +50,7 @@ def _now():
 def connect(path=DB_PATH):
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute(f"PRAGMA journal_mode = {JOURNAL_MODE}")
     try:
         yield conn
         conn.commit()
