@@ -79,13 +79,15 @@ def extract(email):
 def save_jobs(email, result):
     """on_job handler: extract jobs from the email and write them to the database."""
     date_published = (email.get("received_at") or "")[:10] or None
+    print("   extracting jobs...")
     rows = extract(email)
     if not rows:
         print("   -> job-related, but no specific job found to save")
         return
     if RESOLVE_LINKS:
-        for r in rows:
+        for i, r in enumerate(rows, 1):
             if r["link"]:
+                print(f"   resolving link {i}/{len(rows)}: {r['company']}")
                 r["link"] = linkresolver.resolve(r["link"], hint=f"{r['company']} {r['job_title']}")
     added = sum(
         jobdb.add_job(r["company"], r["job_title"], r["link"], date_published) for r in rows

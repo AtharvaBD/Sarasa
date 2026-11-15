@@ -18,6 +18,9 @@
     "browser_profile": ".browser_profile"
   },
   "gmail": {
+    "max_retries": 4,
+    "backoff_seconds": 15,
+    "fetch_delay_seconds": 0.2,
     "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
     "inbox_query": "in:inbox",
     "skip_labels": ["CATEGORY_SOCIAL", "CATEGORY_FORUMS"],

@@ -131,8 +131,10 @@ def resolve(url, hint=""):
     if FAST_REDIRECT:
         fast = _fast_resolve(url)
         if fast:
+            print("   [resolver] followed redirect, no browser needed")
             return fast
 
+    print("   [resolver] opening browser...")
     try:
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(PROFILE_DIR, headless=HEADLESS)
@@ -141,22 +143,30 @@ def resolve(url, hint=""):
             page.goto(url, wait_until=WAIT_UNTIL)
             page.wait_for_load_state("networkidle")
 
+            how = None
             # 1. Redirect that landed on the employer's site.
             if not _is_unresolved(page.url):
-                result = page.url
+                result, how = page.url, "browser redirect"
             else:
                 # 2. An outbound link whose text says "apply".
                 cands = _candidates(page)
                 apply_links = [c for c in cands if APPLY_RE.search(c["text"])]
                 if len(apply_links) == 1:
-                    result = apply_links[0]["url"]
+                    result, how = apply_links[0]["url"], "apply link"
                 else:
                     # 3. Click the Apply button and catch the new tab.
                     result = _click_apply_popup(context, page)
+                    how = "apply button"
                     # 4. Last resort: let the cheap model choose among candidates.
                     if not result and cands:
+                        print("   [resolver] asking the AI to pick a link...")
                         result = _llm_pick(page, apply_links or cands, hint)
+                        how = "AI pick"
             context.close()
+            if result:
+                print(f"   [resolver] found via {how}")
+            else:
+                print("   [resolver] no luck, keeping original link")
             return result or url
     except Exception as e:
         print(f"   [resolver] failed for {url[:80]}: {e}")

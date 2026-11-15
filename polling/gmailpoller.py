@@ -38,6 +38,9 @@ LINK_TEXT_CHARS = configpoll.cfg["gmail"]["link_text_chars"]
 TRAILING_PUNCT = configpoll.cfg["gmail"]["trailing_punct"]
 SKIP_CLASSIFICATION = configpoll.cfg["gmail"]["skip_classification"]
 
+MAX_RETRIES = configpoll.cfg["gmail"]["max_retries"]
+BACKOFF_SECONDS = configpoll.cfg["gmail"]["backoff_seconds"]
+FETCH_DELAY = configpoll.cfg["gmail"]["fetch_delay_seconds"]
 
 # ---------- auth ----------
 
@@ -177,18 +180,35 @@ def skip_reason(email):
 
 
 # ---------- fetching ----------
+def _execute(request):
+    """Run a Gmail API request, waiting and retrying if Gmail says we're going too fast."""
+    from googleapiclient.errors import HttpError
+
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            return request.execute()
+        except HttpError as e:
+            limited = e.resp.status == 429 or (
+                e.resp.status == 403 and "ratelimitexceeded" in str(e).lower()
+            )
+            if not limited or attempt == MAX_RETRIES:
+                raise
+            wait = BACKOFF_SECONDS * (2 ** attempt)   # 15s, 30s, 60s, 120s
+            print(f"   Gmail rate limit hit, waiting {wait}s (retry {attempt + 1}/{MAX_RETRIES})...")
+            time.sleep(wait)
 
 def fetch_email(service, message_id):
-    msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+    msg = _execute(service.users().messages().get(userId="me", id=message_id, format="full"))
+    time.sleep(FETCH_DELAY)   # small pause so a big backfill doesn't hammer Gmail
     return parse_message(msg)
 
 
 def _recent_ids(service, days):
     ids, token = [], None
     while True:
-        r = service.users().messages().list(
+        r = _execute(service.users().messages().list(
             userId="me", q=f"{INBOX_QUERY} newer_than:{days}d", pageToken=token, maxResults=PAGE_SIZE
-        ).execute()
+        ))
         ids += [m["id"] for m in r.get("messages", [])]
         token = r.get("nextPageToken")
         if not token:
@@ -199,10 +219,10 @@ def _recent_ids(service, days):
 def _history_ids(service, start_id):
     ids, token, latest = [], None, start_id
     while True:
-        r = service.users().history().list(
+        r = _execute(service.users().history().list(
             userId="me", startHistoryId=start_id, historyTypes=HISTORY_TYPES,
             labelId=HISTORY_LABEL, pageToken=token,
-        ).execute()
+        ))
         for h in r.get("history", []):
             for m in h.get("messagesAdded", []):
                 ids.append(m["message"]["id"])
@@ -233,39 +253,23 @@ def poll_once(service, handler, backfill_days=0, db_path=jobdb.DB_PATH):
             print("History id expired; falling back to a recent-mail scan.")
             ids, new_history = _recent_ids(service, max(backfill_days, FALLBACK_DAYS)), current
 
+    todo = [m for m in ids if not jobdb.is_processed(m, db_path)]
+    print(f"[{datetime.now():%H:%M:%S}] Gmail returned {len(ids)} emails, {len(todo)} not yet processed")
+
     handled = skipped = failed = 0
-    for mid in ids:
-        if jobdb.is_processed(mid, db_path):
-            continue
+    for n, mid in enumerate(todo, 1):
         try:
             email = fetch_email(service, mid)
         except HttpError as e:
             if e.resp.status == 404:  # deleted before we got to it
                 continue
             raise
+        tag = f"[{n}/{len(todo)}]"
         reason = skip_reason(email)
         if reason:
+            print(f"{tag} skipped ({reason}): {(email['subject'] or '')[:55]}")
             jobdb.mark_processed(mid, SKIP_CLASSIFICATION, email["thread_id"], db_path)
             skipped += 1
-            continue
-        try:
-            handler(email)
-            handled += 1
-        except ec.ModelUnavailable as e:
-            # Model server is down: stop this cycle, don't advance the cursor, retry next poll.
-            failed += 1
-            print(f"Model unavailable, aborting this cycle: {e}")
-            break
-        except Exception as e:  # keep going; retry this one next cycle
-            failed += 1
-            print(f"Handler failed on {mid}: {e}")
-
-    # Only advance the cursor if everything succeeded, so failures get retried.
-    if not failed:
-        state["history_id"] = new_history
-        save_state(state)
-    print(f"[{datetime.now():%H:%M:%S}] new={len(ids)} handled={handled} skipped={skipped} failed={failed}")
-
 
 def main():
     poller = configpoll.cfg["poller"]
@@ -290,6 +294,7 @@ def main():
             print(f"Poll failed: {e}")
         if args.once:
             break
+        print(f"Next check in {args.interval}s (Ctrl+C to stop)\n")
         time.sleep(args.interval)
 
 
