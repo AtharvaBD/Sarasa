@@ -113,7 +113,7 @@ The number is the model's confidence from 0 to 1. `REVIEW` means it is below the
 
 ## Settings
 
-Everything adjustable lives in `config.json`: the model, the confidence threshold, how many characters of each email the AI reads, which Gmail labels to skip, and the AI prompts. Change a value and re-run. No code edits are needed.
+Everything adjustable lives in `configpoll.json`: the model, the confidence threshold, how many characters of each email the AI reads, which Gmail labels to skip, and the AI prompts. Change a value and re-run. No code edits are needed.
 
 ## Files in this folder
 
