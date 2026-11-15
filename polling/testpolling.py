@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest import mock
 
-import config
+import systemdata.config as config
 from polling import emailclassifer as ec
 from polling import jobdb
 

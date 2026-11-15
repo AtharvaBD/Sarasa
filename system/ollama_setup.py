@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 
-import config
+import systemdata.config as config
 
 
 class SetupError(RuntimeError):
